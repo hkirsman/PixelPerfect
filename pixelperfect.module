@@ -1,0 +1,252 @@
+<?php
+
+/**
+ * Implementation of hook_menu().
+ */
+function pixelperfect_menu() {
+  $items = array();
+
+  $items['admin/settings/pixelperfect'] = array(
+    'title' => 'PixelPerfect Configuration',
+    'description' => 'Configure the pixelperfect module.',
+    'page callback' => 'pixelperfect_admin_settings',
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['devel/pixelperfect'] = array(
+    'title callback' => 'pixelperfect_set_menu_text',
+    'description' => 'Quickly enable or disable the pixelperfect module.',
+    'page callback' => 'pixelperfect_toggle',
+    'access arguments' => array('access devel information'),
+    'menu_name' => 'devel',
+    'weight' => 6,
+  );
+  $items['pixelperfect/update-position'] = array(
+    'page callback' => 'pixelperfect_update_position', 
+    'access arguments' => array('access devel information'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function pixelperfect_perm() {
+  return array('access pixelperfect information');
+}
+
+/**
+ * Determine whether the user has permission to access the information provided by this module.
+ *
+ * @param $account
+ *   (optional) The account to check, if not given use currently logged in user.
+ *
+ * @return
+ *   Boolean TRUE if the user has permission to access the information provided
+ *   by this module.
+ *
+ * @see user_access()
+ */
+function pixelperfect_user_access($account = NULL) {
+  // Users with access to devel information from the devel module should
+  // automatically get access to the theme information as well.
+  return (user_access('access devel information', $account) || user_access('access pixelperfect information', $account));
+}
+
+/**
+ * Helper function to set the menu link text.
+ */
+function pixelperfect_set_menu_text() {
+  return pixelperfect_enabled() ? t('Disable PixelPerfect') : t('Enable PixelPerfect');
+}
+
+/**
+ * Toggle PixelPerfect.
+ * This is called from the Devel menu link.
+ * 
+ * @return void
+ */
+function pixelperfect_toggle() {
+  if (pixelperfect_enabled()) {
+    pixelperfect_enabled(FALSE);
+    drupal_set_message(t('PixelPerfect module is now disabled.'));
+  }
+  else {
+    pixelperfect_enabled(TRUE);
+    drupal_set_message(t('PixelPerfect module is now enabled. Tick the "overlay" box to display the mockup.'));
+  }
+  drupal_goto();
+}
+
+/**
+ * Set and/or return the status of PixelPerfect.
+ * @param
+ *   $enable - TRUE to enable the themer.
+ *             FALSE to disable the themer.
+ *             NULL to leave it unchanged.
+ *
+ * @return
+ *   TRUE if themer is enabled, FALSE if not.
+ */
+function pixelperfect_enabled($enable = NULL) {
+  if (!is_null($enable)) {
+    variable_set('pixelperfect_enabled', (bool)$enable);
+  }
+  return variable_get('pixelperfect_enabled', TRUE);
+}
+
+function pixelperfect_init() {
+  if (pixelperfect_enabled() && pixelperfect_user_access()) {
+    $path = drupal_get_path('module', 'pixelperfect');
+    $path_to_devel = drupal_get_path('module', 'devel');
+    // we inject our HTML after page has loaded we have to add this manually.
+    drupal_add_css($path .'/pixelperfect.css');
+    drupal_add_js($path .'/pixelperfect.js');
+   
+    // The order these last two are loaded is important.
+    if (module_exists('jquery_ui'))
+    {
+      jquery_ui_add('ui.core');
+      // Early versions of jquery_ui still need ui.mouse included.
+      $jquery_version = explode(".",jquery_ui_get_version());
+      if ($jquery_version[0] < 1 || ($jquery_version[0] == 1 && $jquery_version[1] < 5)) {
+        jquery_ui_add('ui.mouse');
+      }
+      jquery_ui_add('ui.draggable');
+    }
+    else
+    {
+      drupal_add_js($path_to_devel .'/ui.mouse.js');
+      drupal_add_js($path_to_devel .'/ui.draggable.js');
+    }
+   
+    // This needs to happen after all the other CSS.
+    drupal_set_html_head('<!--[if IE]>
+    <link href="' . base_path() . $path .'/pixelperfect_ie_fix.css" rel="stylesheet" type="text/css" media="screen" />
+<![endif]-->');
+    pixelperfect_popup();
+  }
+}
+
+/**
+ * Return the popup template
+ * placed here for easy editing
+ */
+function pixelperfect_popup() {
+  $mockups = variable_get('pixelperfect_mockups', array());
+
+  $mockup_id = count($mockups) - 1;
+  $last = $mockups[$mockup_id];
+
+  $mockup = base_path() . $last['mockup'];
+  $mockup_invert = base_path() . $last['mockup_invert'];
+  $mockup_top = $last['mockup_top'];
+  $mockup_left = $last['mockup_left'];
+
+  drupal_add_js(array('ppStrings' =>
+    array(
+      'pp_toggle' => t('Overlay'),
+      'pp_invert' => t('Invert'),
+      'pp_mockup' => $mockup,
+      'pp_mockup_invert' => $mockup_invert,
+      'pp_mockup_id' => $mockup_id,
+      'pp_top' => $mockup_top,
+      'pp_left' => $mockup_left,
+    ),
+  ), 'setting');
+}
+
+function pixelperfect_admin_settings() {
+  $output = drupal_get_form('pixelperfect_upload_form');
+
+  $mockups = variable_get('pixelperfect_mockups', '');
+
+  if(is_array($mockups)) {
+    $output .= '<table>';
+    $output .= '<thead><tr><td>Thumbnail</td><td>File</td><td>Operations</td></tr></thead>';
+    foreach($mockups as $key => $mockup) {
+      $output .= '<tr>';
+      $output .= '  <td><a href="' . base_path() . $mockup['mockup'] . '"><img width=200 src="' . base_path() . $mockup['mockup'] . '"></a></td>';
+      $output .= '  <td><a href="' . base_path() . $mockup['mockup'] . '">' . $mockup['mockup'] . '</a></td>';
+      $output .= '  <td><a href="">Delete</a></td>';
+      $output .= '</tr>';
+    }
+    $output .= '</table>';
+  } else {
+    $output .= t("No mockups have been uploaded yet.");
+  }
+
+  return $output;
+}
+
+function pixelperfect_upload_form() {
+  $form['#attributes'] = array(
+    'enctype' => "multipart/form-data"
+  );
+  $form['file_upload'] = array(
+    '#type' => 'file',
+    '#title' => 'Mockup Filename'
+  );
+  $form['submit'] = array(
+    '#type'=>'submit',
+    '#value'=>'Upload file'
+  );
+  return $form;
+}
+
+function pixelperfect_upload_form_submit($form, &$form_state) {
+
+  // Save new file uploads.
+  if ($file = file_save_upload('file_upload', $validators, file_directory_path() . '/pixelperfect')) {
+    $mockups = variable_get('pixelperfect_mockups', array());
+
+    $new = array();
+    $new['mockup'] = file_directory_path() . '/pixelperfect/' . $file->filename;
+    _pixelperfect_invert_image($file->filepath, 'invert-' . $file->filename,TRUE,'png');
+    $new['mockup_invert'] = file_directory_path() . '/pixelperfect/invert-' . $file->filename;
+    $new['mockup_top'] = $new['mockup_left'] = '0px';
+
+    $mockups[] = $new;
+    variable_set('pixelperfect_mockups', $mockups);
+
+    drupal_set_message('You have successfully uploaded the mockup: ' . $file->filename);
+  }
+}
+
+function _pixelperfect_invert_image($input, $output, $color = FALSE, $type = 'jpeg') {
+
+  if($type == 'jpeg') $bild = imagecreatefromjpeg($input);
+  else $bild = imagecreatefrompng($input);
+
+  $x = imagesx($bild);
+  $y = imagesy($bild);
+ 
+  for($i=0; $i<$y; $i++) {
+    for($j=0; $j<$x; $j++) {
+      $pos = imagecolorat($bild, $j, $i);
+      $f = imagecolorsforindex($bild, $pos);
+      if($color == TRUE) {
+        $col = imagecolorresolve($bild, 255-$f['red'], 255-$f['green'], 255-$f['blue']);
+      } else {
+        $gst = $f['red']*0.15 + $f['green']*0.5 + $f['blue']*0.35;
+        $col = imagecolorclosesthwb($bild, 255-$gst, 255-$gst, 255-$gst);
+      }
+      imagesetpixel($bild, $j, $i, $col);
+    }
+  }
+  if(empty($output)) header('Content-type: image/'.$type);
+  if($type == 'jpeg') imagejpeg($bild,$output,90);
+  else imagepng($bild,file_directory_path() . '/pixelperfect/' . $output);
+}
+
+function pixelperfect_update_position() {
+  $mockups = variable_get('pixelperfect_mockups', '');
+
+  if(is_array($mockups)) {
+    $mockups[$_POST['id']]['mockup_top'] = $_POST['top'];
+    $mockups[$_POST['id']]['mockup_left'] = $_POST['left'];
+  }
+
+  variable_set('pixelperfect_mockups', $mockups);
+}

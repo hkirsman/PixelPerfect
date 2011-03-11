@@ -1,0 +1,26 @@
+#pixelperfect-toggle {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  padding: 3px 5px;
+  background: #fff;
+  color: #008;
+  cursor: pointer;
+  z-index: 10002;
+  font-size: 13px;
+  background-color: #333;
+  opacity: .8;
+  color: #FFF;
+  border-top: 1px solid #000;
+  border-right: 1px solid #000;
+}
+
+#pixelperfect-overlay {
+  background: top left no-repeat;
+  display: none;
+  left: 0;
+  top: 0;
+  opacity: 0.5;
+  position: fixed;
+  z-index: 10000;
+}

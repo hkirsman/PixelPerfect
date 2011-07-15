@@ -1,3 +1,7 @@
+* {
+  margin: 0;
+}
+
 #pixelperfect-toggle {
   position: fixed;
   bottom: 0;
@@ -9,18 +13,45 @@
   z-index: 10002;
   font-size: 13px;
   background-color: #333;
-  opacity: .8;
+  -ms-filter:"progid:DXImageTransform.Microsoft.Alpha(Opacity=80)";
+  filter:alpha(opacity=80);
+  -moz-opacity: 0.8;
+  -khtml-opacity: 0.8;
+  opacity: 0.8;
   color: #FFF;
   border-top: 1px solid #000;
   border-right: 1px solid #000;
 }
 
-#pixelperfect-overlay {
-  background: top left no-repeat;
+#pixelperfect-toggle select {
+  background: #eee;
+}
+
+#pixelperfect-overlay-wrapper {
   display: none;
+  height: 100%;
+  position: fixed;
   left: 0;
   top: 0;
+  width: 100%;
+}
+
+#pixelperfect-overlay {
+  background: top left no-repeat;
+  left: 0;
+  top: 0;
+  -ms-filter:"progid:DXImageTransform.Microsoft.Alpha(Opacity=50)";
+  filter:alpha(opacity=50);
+  -moz-opacity: 0.5;
+  -khtml-opacity: 0.5;
   opacity: 0.5;
-  position: fixed;
   z-index: 10000;
+}
+
+* html #pixelperfect-overlay-wrapper {
+  position: absolute;
+}
+
+* html #pixelperfect-toggle {
+  position: absolute;
 }

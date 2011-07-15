@@ -1,6 +1,4 @@
 name = PixelPerfect 
 description = Upload mockups and overlay them over your theme to quickly determine accuracy of theme implementations 
-package = Development 
-dependencies[] = devel
-dependencies[] = jquery_ui 
-core = 6.x
+package = Development
+core = 7.x

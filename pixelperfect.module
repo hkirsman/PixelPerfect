@@ -12,17 +12,14 @@ function pixelperfect_menu() {
     'page callback' => 'pixelperfect_admin_settings',
     'access arguments' => array('administer site configuration'),
   );
-  $items['devel/pixelperfect'] = array(
-    'title callback' => 'pixelperfect_set_menu_text',
-    'description' => 'Quickly enable or disable the pixelperfect module.',
-    'page callback' => 'pixelperfect_toggle',
-    'access arguments' => array('access devel information'),
-    'menu_name' => 'devel',
-    'weight' => 6,
-  );
   $items['pixelperfect/update-position'] = array(
     'page callback' => 'pixelperfect_update_position', 
-    'access arguments' => array('access devel information'),
+    'access arguments' => array('access pixelperfect information'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['pixelperfect/load-mockup'] = array(
+    'page callback' => 'pixelperfect_load_mockup',
+    'access arguments' => array('access pixelperfect information'),
     'type' => MENU_CALLBACK,
   );
 
@@ -99,30 +96,15 @@ function pixelperfect_enabled($enable = NULL) {
 function pixelperfect_init() {
   if (pixelperfect_enabled() && pixelperfect_user_access()) {
     $path = drupal_get_path('module', 'pixelperfect');
-    $path_to_devel = drupal_get_path('module', 'devel');
     // we inject our HTML after page has loaded we have to add this manually.
     drupal_add_css($path .'/pixelperfect.css');
     drupal_add_js($path .'/pixelperfect.js');
-   
-    // The order these last two are loaded is important.
-    if (module_exists('jquery_ui'))
-    {
-      jquery_ui_add('ui.core');
-      // Early versions of jquery_ui still need ui.mouse included.
-      $jquery_version = explode(".",jquery_ui_get_version());
-      if ($jquery_version[0] < 1 || ($jquery_version[0] == 1 && $jquery_version[1] < 5)) {
-        jquery_ui_add('ui.mouse');
-      }
-      jquery_ui_add('ui.draggable');
-    }
-    else
-    {
-      drupal_add_js($path_to_devel .'/ui.mouse.js');
-      drupal_add_js($path_to_devel .'/ui.draggable.js');
-    }
+
+    drupal_add_library('system', 'ui.mouse');
+    drupal_add_library('system', 'ui.draggable');
    
     // This needs to happen after all the other CSS.
-    drupal_set_html_head('<!--[if IE]>
+    drupal_add_html_head('<!--[if IE]>
     <link href="' . base_path() . $path .'/pixelperfect_ie_fix.css" rel="stylesheet" type="text/css" media="screen" />
 <![endif]-->');
     pixelperfect_popup();
@@ -133,33 +115,44 @@ function pixelperfect_init() {
  * Return the popup template
  * placed here for easy editing
  */
+
 function pixelperfect_popup() {
-  $mockups = variable_get('pixelperfect_mockups', array());
+  $mockups = variable_get('pixelperfect_mockups', NULL);
+  $options = array();
 
-  $mockup_id = count($mockups) - 1;
-  $last = $mockups[$mockup_id];
+  if (is_array($mockups)) {
+    foreach ($mockups as $key => $mockup) {
+      if (is_array($mockup)) {
+        $options[$key] = '<option value="' . $key . '">' . $mockup['mockup'] . '</option>';
+      }
+    }
 
-  $mockup = base_path() . $last['mockup'];
-  $mockup_invert = base_path() . $last['mockup_invert'];
-  $mockup_top = $last['mockup_top'];
-  $mockup_left = $last['mockup_left'];
+    $mockup = base_path() . $mockups[0]['mockup'];
+    $mockup_invert = base_path() . $mockups[0]['mockup_invert'];
+    $mockup_top = $mockups[0]['mockup_top'];
+    $mockup_left = $mockups[0]['mockup_left'];
 
-  drupal_add_js(array('ppStrings' =>
-    array(
-      'pp_toggle' => t('Overlay'),
-      'pp_invert' => t('Invert'),
-      'pp_mockup' => $mockup,
-      'pp_mockup_invert' => $mockup_invert,
-      'pp_mockup_id' => $mockup_id,
-      'pp_top' => $mockup_top,
-      'pp_left' => $mockup_left,
-    ),
-  ), 'setting');
+    $ppstrings = array('ppReady' => 1,
+      'ppStrings' => array(
+        'pp_toggle' => t('Overlay'),
+        'pp_invert' => t('Invert'),
+        'pp_options' => implode('', $options),
+        'pp_mockup' => 'sites/default/files/' . file_uri_target($mockup),
+        'pp_mockup_invert' => 'sites/default/files/' . file_uri_target($mockup_invert),
+        'pp_mockup_id' => 0,
+        'pp_top' => $mockup_top,
+        'pp_left' => $mockup_left,
+      ),
+    );
+    drupal_add_js($ppstrings, 'setting');
+  }
+  else {
+    drupal_set_message('You have not added any mockups to PixelPerfect yet. ' . l('Click here', 'admin/settings/pixelperfect') . ' to add some or ' . l('disable PixelPerfect', 'devel/pixelperfect') . '.', 'warning');
+  }
 }
 
 function pixelperfect_admin_settings() {
-  $output = drupal_get_form('pixelperfect_upload_form');
-
+  $output = render(drupal_get_form('pixelperfect_upload_form'));
   $mockups = variable_get('pixelperfect_mockups', '');
 
   if(is_array($mockups)) {
@@ -167,8 +160,8 @@ function pixelperfect_admin_settings() {
     $output .= '<thead><tr><td>Thumbnail</td><td>File</td><td>Operations</td></tr></thead>';
     foreach($mockups as $key => $mockup) {
       $output .= '<tr>';
-      $output .= '  <td><a href="' . base_path() . $mockup['mockup'] . '"><img width=200 src="' . base_path() . $mockup['mockup'] . '"></a></td>';
-      $output .= '  <td><a href="' . base_path() . $mockup['mockup'] . '">' . $mockup['mockup'] . '</a></td>';
+      $output .= '  <td>' . theme('image', array('path' => $mockup['mockup'], 'width' => '200')) . '</td>';
+      $output .= '  <td>' . base_path() . file_uri_target($mockup['mockup']) . '</td>';
       $output .= '  <td><a href="">Delete</a></td>';
       $output .= '</tr>';
     }
@@ -196,15 +189,15 @@ function pixelperfect_upload_form() {
 }
 
 function pixelperfect_upload_form_submit($form, &$form_state) {
-
   // Save new file uploads.
-  if ($file = file_save_upload('file_upload', $validators, file_directory_path() . '/pixelperfect')) {
+  if ($file = file_save_upload('file_upload', array(), file_default_scheme() . '://pixelperfect')) {
+    drupal_chmod($file->uri, 0777);
     $mockups = variable_get('pixelperfect_mockups', array());
 
     $new = array();
-    $new['mockup'] = file_directory_path() . '/pixelperfect/' . $file->filename;
-    _pixelperfect_invert_image($file->filepath, 'invert-' . $file->filename,TRUE,'png');
-    $new['mockup_invert'] = file_directory_path() . '/pixelperfect/invert-' . $file->filename;
+    $new['mockup'] = file_default_scheme() . '://pixelperfect/' . $file->filename;
+    _pixelperfect_invert_image(drupal_realpath($file->uri), 'invert-' . $file->filename,TRUE,'png');
+    $new['mockup_invert'] = file_default_scheme() . '://pixelperfect/invert-' . $file->filename;
     $new['mockup_top'] = $new['mockup_left'] = '0px';
 
     $mockups[] = $new;
@@ -215,8 +208,7 @@ function pixelperfect_upload_form_submit($form, &$form_state) {
 }
 
 function _pixelperfect_invert_image($input, $output, $color = FALSE, $type = 'jpeg') {
-
-  if($type == 'jpeg') $bild = imagecreatefromjpeg($input);
+  if($type == 'jpeg' || $type == 'jpg') $bild = imagecreatefromjpeg($input);
   else $bild = imagecreatefrompng($input);
 
   $x = imagesx($bild);
@@ -237,7 +229,7 @@ function _pixelperfect_invert_image($input, $output, $color = FALSE, $type = 'jp
   }
   if(empty($output)) header('Content-type: image/'.$type);
   if($type == 'jpeg') imagejpeg($bild,$output,90);
-  else imagepng($bild,file_directory_path() . '/pixelperfect/' . $output);
+  else imagepng($bild,drupal_realpath(base_path()) . 'sites/default/files/pixelperfect/' . $output);
 }
 
 function pixelperfect_update_position() {
@@ -250,3 +242,46 @@ function pixelperfect_update_position() {
 
   variable_set('pixelperfect_mockups', $mockups);
 }
+
+function pixelperfect_load_mockup() {
+  $mockups = variable_get('pixelperfect_mockups', '');
+  if (is_array($mockups)) {
+    $mockup = $mockups[filter_xss($_POST['id'])];
+
+    if (is_array($mockup)) {
+      $mockup['mockup'] = base_path() . 'sites/default/files/' . file_uri_target($mockup['mockup']);
+      $mockup['mockup_invert'] = base_path() . 'sites/default/files/' . file_uri_target($mockup['mockup_invert']);
+      return drupal_json_output(json_encode($mockup));
+    }
+  }
+}
+
+/**
+ * Recursively delete all files and folders in the specified filepath, then
+ * delete the containing folder.
+ *
+ * Note that this only deletes visible files with write permission.
+ *
+ * @param string $path
+ *   A filepath relative to file_directory_path.
+ */
+function _pixelperfect_recursive_delete($path) {
+  if (is_file($path) || is_link($path)) {
+    unlink($path);
+  }
+  elseif (is_dir($path)) {
+    $d = dir($path);
+    while (($entry = $d->read()) !== FALSE) {
+      if ($entry == '.' || $entry == '..') continue;
+        $entry_path = $path .'/'. $entry;
+        _pixelperfect_recursive_delete($entry_path);
+      }
+      $d->close();
+      rmdir($path);
+  }
+  else {
+    watchdog('pixelperfect', 'Unknown file type(%path) stat: %stat ',
+    array('%path' => $path,  '%stat' => print_r(stat($path), 1)), WATCHDOG_ERROR);
+  }
+}
+

@@ -9,17 +9,24 @@ function pixelperfect_menu() {
   $items['admin/settings/pixelperfect'] = array(
     'title' => 'PixelPerfect Configuration',
     'description' => 'Configure the pixelperfect module.',
-    'page callback' => 'pixelperfect_admin_settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('pixelperfect_admin_settings'),
     'access arguments' => array('administer site configuration'),
   );
   $items['pixelperfect/update-position'] = array(
-    'page callback' => 'pixelperfect_update_position', 
+    'page callback' => 'pixelperfect_update_position',
     'access arguments' => array('access pixelperfect information'),
     'type' => MENU_CALLBACK,
   );
   $items['pixelperfect/load-mockup'] = array(
     'page callback' => 'pixelperfect_load_mockup',
     'access arguments' => array('access pixelperfect information'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['pixelperfect/delete-mockup'] = array(
+    'description' => 'Hook for deleting composition.',
+    'page callback' => 'pixelperfect_delete_page_callback',
+    'access arguments' => array('administer site configuration'),
     'type' => MENU_CALLBACK,
   );
 
@@ -61,7 +68,7 @@ function pixelperfect_set_menu_text() {
 /**
  * Toggle PixelPerfect.
  * This is called from the Devel menu link.
- * 
+ *
  * @return void
  */
 function pixelperfect_toggle() {
@@ -102,7 +109,7 @@ function pixelperfect_init() {
 
     drupal_add_library('system', 'ui.mouse');
     drupal_add_library('system', 'ui.draggable');
-   
+
     // This needs to happen after all the other CSS.
     drupal_add_html_head('<!--[if IE]>
     <link href="' . base_path() . $path .'/pixelperfect_ie_fix.css" rel="stylesheet" type="text/css" media="screen" />
@@ -115,12 +122,11 @@ function pixelperfect_init() {
  * Return the popup template
  * placed here for easy editing
  */
-
 function pixelperfect_popup() {
-  $mockups = variable_get('pixelperfect_mockups', NULL);
+  $mockups = variable_get('pixelperfect_mockups', array());
   $options = array();
 
-  if (is_array($mockups)) {
+  if (count($mockups)) {
     foreach ($mockups as $key => $mockup) {
       if (is_array($mockup)) {
         $options[$key] = '<option value="' . $key . '">' . $mockup['mockup'] . '</option>';
@@ -151,32 +157,7 @@ function pixelperfect_popup() {
   }
 }
 
-function pixelperfect_admin_settings() {
-  $output = render(drupal_get_form('pixelperfect_upload_form'));
-  $mockups = variable_get('pixelperfect_mockups', '');
-
-  if(is_array($mockups)) {
-    $output .= '<table>';
-    $output .= '<thead><tr><td>Thumbnail</td><td>File</td><td>Operations</td></tr></thead>';
-    foreach($mockups as $key => $mockup) {
-      $output .= '<tr>';
-      $output .= '  <td>' . theme('image', array('path' => $mockup['mockup'], 'width' => '200')) . '</td>';
-      $output .= '  <td>' . base_path() . file_uri_target($mockup['mockup']) . '</td>';
-      $output .= '  <td><a href="">Delete</a></td>';
-      $output .= '</tr>';
-    }
-    $output .= '</table>';
-  } else {
-    $output .= t("No mockups have been uploaded yet.");
-  }
-
-  return $output;
-}
-
-function pixelperfect_upload_form() {
-  $form['#attributes'] = array(
-    'enctype' => "multipart/form-data"
-  );
+function pixelperfect_admin_settings($form, &$form_state) {
   $form['file_upload'] = array(
     '#type' => 'file',
     '#title' => 'Mockup Filename'
@@ -185,25 +166,75 @@ function pixelperfect_upload_form() {
     '#type'=>'submit',
     '#value'=>'Upload file'
   );
+  $mockups = variable_get('pixelperfect_mockups', array());
+  $suffix = '';
+  if(count($mockups)) {
+    $directory = 'public://pixelperfect';
+    $files = file_scan_directory($directory, '/.*/');
+
+    $suffix .= '<table>';
+    $suffix .= '<thead><tr><td>Thumbnail</td><td>File</td><td>Operations</td></tr></thead>';
+    foreach($mockups as $key => $mockup) {
+      $suffix .= '<tr>';
+      $suffix .= '  <td>' . theme('image_style', array('style_name' => 'thumbnail', 'path' => $mockup['mockup'])) . '</td>';
+      $suffix .= '  <td>' . basename($mockup['mockup']) . '</td>';
+      $suffix .= '  <td>' . l(t('Delete'), 'pixelperfect/delete-mockup', array('query' => array('destination' => current_path(), 'file' => $mockup['mockup']))) . '</td>';
+      $suffix .= '</tr>';
+    }
+    $suffix .= '</table>';
+  } else {
+    $suffix .= t("No mockups have been uploaded yet.");
+  }
+  $form['#suffix'] = $suffix;
   return $form;
 }
 
-function pixelperfect_upload_form_submit($form, &$form_state) {
-  // Save new file uploads.
-  if ($file = file_save_upload('file_upload', array(), file_default_scheme() . '://pixelperfect')) {
-    drupal_chmod($file->uri, 0777);
+function pixelperfect_admin_settings_validate($form, &$form_state) {
+  $validators = array(
+    'file_validate_extensions' => array('jpg jpeg png'),
+  );
+
+  $file = file_save_upload('file_upload', $validators, FALSE, FILE_EXISTS_REPLACE);
+
+  if (isset($file)) {
+    // File upload was attempted.
+    if ($file) {
+      // Put the temporary file in file_upload so we can save it on submit.
+      $form_state['values']['file_upload'] = $file;
+    }
+    else {
+      form_set_error('file_upload', t('The file could not be uploaded.'));
+    }
+  }
+}
+
+function pixelperfect_admin_settings_submit($form, &$form_state) {
+  // Check if a file was uploaded.
+  if ($file = $form_state['values']['file_upload']) {
     $mockups = variable_get('pixelperfect_mockups', array());
 
-    $new = array();
-    $new['mockup'] = file_default_scheme() . '://pixelperfect/' . $file->filename;
-    _pixelperfect_invert_image(drupal_realpath($file->uri), 'invert-' . $file->filename,TRUE,'png');
-    $new['mockup_invert'] = file_default_scheme() . '://pixelperfect/invert-' . $file->filename;
-    $new['mockup_top'] = $new['mockup_left'] = '0px';
+    // Create the directory if it doesn't exist.
+    $directory = 'public://pixelperfect';
+    file_prepare_directory($directory, FILE_CREATE_DIRECTORY);
 
-    $mockups[] = $new;
-    variable_set('pixelperfect_mockups', $mockups);
+    // Copy the file over.
+    $filename = file_unmanaged_copy($file->uri, $directory, FILE_EXISTS_REPLACE);
 
-    drupal_set_message('You have successfully uploaded the mockup: ' . $file->filename);
+    if ($filename) {
+      $new = array();
+      $new['mockup'] = 'public://pixelperfect/' . $file->filename;
+      _pixelperfect_invert_image(drupal_realpath($file->uri), 'invert-' . $file->filename, TRUE, 'png');
+      $new['mockup_invert'] = 'public://pixelperfect/invert-' . $file->filename;
+      $new['mockup_top'] = $new['mockup_left'] = '0px';
+
+      $mockups[] = $new;
+      variable_set('pixelperfect_mockups', $mockups);
+
+      drupal_set_message('You have successfully uploaded the mockup: ' . $file->filename);
+    }
+    else {
+      drupal_set_message(t('Sorry, could not upload composition. Check directory permissions.'), 'error');
+    }
   }
 }
 
@@ -213,7 +244,7 @@ function _pixelperfect_invert_image($input, $output, $color = FALSE, $type = 'jp
 
   $x = imagesx($bild);
   $y = imagesy($bild);
- 
+
   for($i=0; $i<$y; $i++) {
     for($j=0; $j<$x; $j++) {
       $pos = imagecolorat($bild, $j, $i);
@@ -233,9 +264,9 @@ function _pixelperfect_invert_image($input, $output, $color = FALSE, $type = 'jp
 }
 
 function pixelperfect_update_position() {
-  $mockups = variable_get('pixelperfect_mockups', '');
+  $mockups = variable_get('pixelperfect_mockups', array());
 
-  if(is_array($mockups)) {
+  if(count($mockups)) {
     $mockups[$_POST['id']]['mockup_top'] = $_POST['top'];
     $mockups[$_POST['id']]['mockup_left'] = $_POST['left'];
   }
@@ -244,11 +275,11 @@ function pixelperfect_update_position() {
 }
 
 function pixelperfect_load_mockup() {
-  $mockups = variable_get('pixelperfect_mockups', '');
-  if (is_array($mockups)) {
+  $mockups = variable_get('pixelperfect_mockups', array());
+  if (count($mockups)) {
     $mockup = $mockups[filter_xss($_POST['id'])];
 
-    if (is_array($mockup)) {
+    if (count($mockup)) {
       $mockup['mockup'] = base_path() . 'sites/default/files/' . file_uri_target($mockup['mockup']);
       $mockup['mockup_invert'] = base_path() . 'sites/default/files/' . file_uri_target($mockup['mockup_invert']);
       return drupal_json_output(json_encode($mockup));
@@ -256,32 +287,40 @@ function pixelperfect_load_mockup() {
   }
 }
 
-/**
- * Recursively delete all files and folders in the specified filepath, then
- * delete the containing folder.
- *
- * Note that this only deletes visible files with write permission.
- *
- * @param string $path
- *   A filepath relative to file_directory_path.
- */
-function _pixelperfect_recursive_delete($path) {
-  if (is_file($path) || is_link($path)) {
-    unlink($path);
+function pixelperfect_delete_page_callback() {
+  // Throw an error if the request is in the wrong directory.
+  if (!strpos($_GET['file'], 'public://pixelperfect/') === FALSE) {
+    drupal_set_message(t("Sorry, you can't delete that mockups."), 'error');
+    $error = TRUE;
   }
-  elseif (is_dir($path)) {
-    $d = dir($path);
-    while (($entry = $d->read()) !== FALSE) {
-      if ($entry == '.' || $entry == '..') continue;
-        $entry_path = $path .'/'. $entry;
-        _pixelperfect_recursive_delete($entry_path);
+
+  // Throw an error if the file does not exist.
+  if (!file_exists($_GET['file'])) {
+    drupal_set_message(t('Sorry, that mockups does not exist.'), 'error');
+    $error = TRUE;
+  }
+
+  // All is good, go ahead and delete the file.
+  if (!isset($error)) {
+    if (drupal_unlink($_GET['file'])) {
+      $file_name = basename($_GET['file']);
+      $mockups = variable_get('pixelperfect_mockups', array());
+      foreach ($mockups as $key => $mockup) {
+        if (basename($mockup['mockup']) == $file_name) {
+          drupal_unlink($mockup['mockup_invert']);
+          unset($mockups[$key]);
+          variable_set('pixelperfect_mockups', $mockups);
+        }
       }
-      $d->close();
-      rmdir($path);
+      drupal_set_message(t('%file has been deleted.', array('%file' => $file_name)));
+    }
+    else {
+      drupal_set_message(t('Sorry, could not delete mockups. Check file permissions.'), 'error');
+    }
   }
   else {
-    watchdog('pixelperfect', 'Unknown file type(%path) stat: %stat ',
-    array('%path' => $path,  '%stat' => print_r(stat($path), 1)), WATCHDOG_ERROR);
+    drupal_set_message(t('Sorry, could not delete mockups. Check file permissions.'), 'error');
   }
-}
 
+  drupal_goto($_GET['destination']);
+}

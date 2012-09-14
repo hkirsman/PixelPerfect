@@ -1,0 +1,16 @@
+<?php
+
+/**
+ * @file
+ * Install, update, and uninstall functions for the Pixelperfect module.
+ */
+
+
+/**
+ * Implements hook_uninstall().
+ */
+function pixelperfect_uninstall() {
+  // Unset pixelperfect variables.
+  variable_del('pixelperfect_mockups');
+  file_unmanaged_delete_recursive('public://pixelperfect');
+}
